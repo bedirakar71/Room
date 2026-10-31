@@ -15,6 +15,7 @@ import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 
@@ -113,7 +114,7 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
             cur.ins.add(p.getUniqueId());
             if (cur.ins.size() == 1) p.sendMessage(ChatColor.YELLOW + "Rooma giriş yaptın, diğer oyuncu bekleniyor...");
             else if (cur.ins.size() == 2) {
-                cur.closeDoor(); cur.lock = true;
+                cur.closeDoor(); cur.lock = true; cur.ended = false;
                 Iterator<UUID> it = cur.ins.iterator();
                 Player p1 = Bukkit.getPlayer(it.next()), p2 = Bukkit.getPlayer(it.next());
                 if (p1 != null && cur.s1 != null) p1.teleport(cur.s1);
@@ -122,6 +123,20 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
                     Player pl = Bukkit.getPlayer(id);
                     if (pl != null) { pl.sendTitle(ChatColor.RED + "Savaş Başladı!", "", 10, 40, 10); pl.sendMessage(ChatColor.RED + "Savaş Başladı!"); }
                 });
+
+                // 10 Dakika (600 Saniye) Zaman Aşımı Zamanlayıcısı
+                cur.maxTask = Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> {
+                    if (cur.lock && !cur.ended) {
+                        cur.ins.forEach(id -> {
+                            Player pl = Bukkit.getPlayer(id);
+                            if (pl != null) {
+                                pl.teleport(pl.getWorld().getSpawnLocation());
+                                pl.sendMessage(ChatColor.RED + "10 dakika boyunca kimse ölmediği için oda otomatik bitti ve spawna gönderildiniz!");
+                            }
+                        });
+                        cur.openDoor();
+                    }
+                }, 10 * 60 * 20L);
             }
         }
     }
@@ -130,6 +145,8 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         Player vic = e.getEntity();
         Room room = r.values().stream().filter(ro -> ro.isInside(vic.getLocation())).findFirst().orElse(null);
         if (room != null && room.lock) {
+            room.ended = true; // Savaş bitti, komut kısıtlaması kalktı
+            if (room.maxTask != null) room.maxTask.cancel();
             List<ItemStack> drops = new ArrayList<>(e.getDrops()); e.getDrops().clear();
             Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + vic.getName() + " Loot");
             drops.forEach(inv::addItem);
@@ -143,6 +160,8 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         Player p = e.getPlayer();
         Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
         if (room != null && room.lock && !room.ended) {
+            room.ended = true; // Oyunda kalanlar için komut kısıtlaması kalktı
+            if (room.maxTask != null) room.maxTask.cancel();
             Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + p.getName() + " Loot");
             for (ItemStack it : p.getInventory().getContents()) if (it != null) inv.addItem(it);
             p.getInventory().clear();
@@ -166,8 +185,10 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
     public void onCmd(PlayerCommandPreprocessEvent e) {
         Player p = e.getPlayer();
         Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
-        if (room != null && room.lock && !room.ended && !p.hasPermission("apexroom.admin")) {
-            e.setCancelled(true); p.sendMessage(ChatColor.RED + "Komut yasak!");
+        // Savaş devam ederken ADMIN DÂHİL Herkese Komut Engellemesi
+        if (room != null && room.lock && !room.ended) {
+            e.setCancelled(true); 
+            p.sendMessage(ChatColor.RED + "Savaş devam ederken komut yazamazsınız!");
         }
     }
 
@@ -188,6 +209,7 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         Set<UUID> ins = new HashSet<>();
         Map<UUID, Inventory> gui = new HashMap<>();
         boolean closed = false, lock = false, ended = false;
+        BukkitTask maxTask;
 
         public Room(String name, Location c1, Location c2) { this.name = name; this.c1 = c1; this.c2 = c2; }
         public boolean isInside(Location l) {
@@ -202,11 +224,11 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         }
         public void openDoor() {
             closed = false; lock = false; ended = false;
+            if (maxTask != null) { maxTask.cancel(); maxTask = null; }
             doors.forEach(l -> l.getBlock().setType(Material.AIR));
         }
         public void startTimer() {
-            ended = true;
-            Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> { openDoor(); gui.clear(); }, 15 * 20L);
+            Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> { openDoor(); gui.clear(); ins.clear(); }, 15 * 20L);
         }
     }
                 }
