@@ -21,25 +21,14 @@
             <id>papermc-repo</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
     </repositories>
 
     <dependencies>
-        <!-- Paper 1.21.4 API -->
+        <!-- Sadece Paper 1.21.4 API Yeterlidir -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
             <version>1.21.4-R0.1-SNAPSHOT</version>
-            <scope>provided</scope>
-        </dependency>
-        <!-- ApexClan API (Soft-depend) -->
-        <dependency>
-            <groupId>com.github.ApexClan</groupId>
-            <artifactId>ApexClan-API</artifactId>
-            <version>master-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
