@@ -5,322 +5,208 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
+import org.bukkit.event.*;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.*;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.*;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
 
-public final class ApexRoom extends JavaPlugin implements Listener, CommandExecutor {
+public final class ApexRoom extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
+    private static ApexRoom i;
+    private final Map<String, Room> r = new HashMap<>();
+    private final Map<UUID, Location> p1 = new HashMap<>(), p2 = new HashMap<>();
 
-    private static ApexRoom instance;
-    private final Map<String, Room> rooms = new HashMap<>();
-    private final Map<UUID, Location> pos1Map = new HashMap<>();
-    private final Map<UUID, Location> pos2Map = new HashMap<>();
-
-    @Override
-    public void onEnable() {
-        instance = this;
+    @Override public void onEnable() {
+        i = this;
         getServer().getPluginManager().registerEvents(this, this);
-        if (getCommand("room") != null) {
-            getCommand("room").setExecutor(this);
-        }
-        getLogger().info("ApexRoom 1.21.4 surumuyle basariyla baslatildi!");
+        getCommand("room").setExecutor(this);
+        getCommand("room").setTabCompleter(this);
     }
+    @Override public void onDisable() { r.values().forEach(Room::openDoor); }
+    public static ApexRoom getInstance() { return i; }
 
-    @Override
-    public void onDisable() {
-        for (Room room : rooms.values()) {
-            room.openDoor();
-        }
-    }
-
-    public static ApexRoom getInstance() {
-        return instance;
-    }
-
-    // --- KOMUT SİSTEMİ ---
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Bu komut sadece oyuncular tarafindan kullanilabilir.");
-            return true;
-        }
-
-        if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "Kullanim: /room <pos1|pos2|create|setdoor> <oda_ismi>");
-            return true;
-        }
-
-        String subCommand = args[0].toLowerCase();
-        String roomName = args[1];
-
-        switch (subCommand) {
-            case "pos1" -> {
-                pos1Map.put(player.getUniqueId(), player.getLocation());
-                player.sendMessage(ChatColor.GREEN + "Room için 1. koordinat (Pos 1) kaydedildi.");
+    @Override public boolean onCommand(CommandSender s, Command c, String l, String[] args) {
+        if (!(s instanceof Player p)) return true;
+        if (args.length == 0) return true;
+        String sub = args[0].toLowerCase();
+        
+        if (sub.equals("wand")) {
+            ItemStack w = new ItemStack(Material.WOODEN_AXE);
+            ItemMeta m = w.getItemMeta(); m.setDisplayName(ChatColor.GOLD + "ApexRoom Baltası");
+            w.setItemMeta(m); p.getInventory().addItem(w);
+            p.sendMessage(ChatColor.GREEN + "Balta verildi!");
+        } else if (sub.equals("pos1") || sub.equals("pos2")) {
+            (sub.equals("pos1") ? p1 : p2).put(p.getUniqueId(), p.getLocation());
+            p.sendMessage(ChatColor.GREEN + "Nokta kaydedildi.");
+        } else if (sub.equals("create") && args.length > 1) {
+            Location l1 = p1.get(p.getUniqueId()), l2 = p2.get(p.getUniqueId());
+            if (l1 == null || l2 == null) { p.sendMessage(ChatColor.RED + "Önce 2 nokta seç!"); return true; }
+            r.put(args[1].toLowerCase(), new Room(args[1], l1, l2));
+            p.sendMessage(ChatColor.GREEN + "Oda oluşturuldu!");
+        } else if ((sub.equals("setspawn1") || sub.equals("setspawn2")) && args.length > 1) {
+            Room room = r.get(args[1].toLowerCase());
+            if (room != null) {
+                if (sub.equals("setspawn1")) room.s1 = p.getLocation(); else room.s2 = p.getLocation();
+                p.sendMessage(ChatColor.GREEN + "Spawn ayarlandı!");
             }
-            case "pos2" -> {
-                pos2Map.put(player.getUniqueId(), player.getLocation());
-                player.sendMessage(ChatColor.GREEN + "Room için 2. koordinat (Pos 2) kaydedildi.");
+        } else if (sub.equals("kapicreate") && args.length > 1) {
+            Room room = r.get(args[1].toLowerCase());
+            Location l1 = p1.get(p.getUniqueId()), l2 = p2.get(p.getUniqueId());
+            if (room != null && l1 != null && l2 != null) {
+                double minX = Math.min(l1.getX(), l2.getX()), maxX = Math.max(l1.getX(), l2.getX());
+                double minY = Math.min(l1.getY(), l2.getY()), maxY = Math.max(l1.getY(), l2.getY());
+                double minZ = Math.min(l1.getZ(), l2.getZ()), maxZ = Math.max(l1.getZ(), l2.getZ());
+                for (double x = minX; x <= maxX; x++)
+                    for (double y = minY; y <= maxY; y++)
+                        for (double z = minZ; z <= maxZ; z++)
+                            room.doors.add(new Location(l1.getWorld(), x, y, z));
+                p.sendMessage(ChatColor.GREEN + "Kapı eklendi!");
             }
-            case "create" -> {
-                Location p1 = pos1Map.get(player.getUniqueId());
-                Location p2 = pos2Map.get(player.getUniqueId());
-                if (p1 == null || p2 == null) {
-                    player.sendMessage(ChatColor.RED + "Önce /room pos1 ve /room pos2 komutlarını kullanmalısın!");
-                    return true;
-                }
-                rooms.put(roomName.toLowerCase(), new Room(roomName, p1, p2));
-                player.sendMessage(ChatColor.GREEN + "'" + roomName + "' isimli oda başarıyla oluşturuldu!");
-            }
-            case "setdoor" -> {
-                Room room = rooms.get(roomName.toLowerCase());
-                if (room == null) {
-                    player.sendMessage(ChatColor.RED + "Böyle bir oda bulunamadı!");
-                    return true;
-                }
-                Block targetBlock = player.getTargetBlockExact(5);
-                if (targetBlock == null) {
-                    player.sendMessage(ChatColor.RED + "Lütfen kapı yapılacak bloğa bakarak komutu girin!");
-                    return true;
-                }
-                room.getDoorBlocks().add(targetBlock.getLocation());
-                player.sendMessage(ChatColor.GREEN + roomName + " odasına yeni kapı bloğu eklendi!");
-            }
-            default -> player.sendMessage(ChatColor.RED + "Geçersiz alt komut! Kullanım: /room <pos1|pos2|create|setdoor> <oda_ismi>");
+        } else if (sub.equals("remove") && args.length > 1) {
+            Room rm = r.remove(args[1].toLowerCase());
+            if (rm != null) rm.openDoor();
+            p.sendMessage(ChatColor.GREEN + "İşlem tamam.");
+        } else if (sub.equals("list")) {
+            p.sendMessage(ChatColor.GOLD + "Odalar: " + String.join(", ", r.keySet()));
         }
         return true;
     }
 
-    // --- EVENTLER ---
-
-    @EventHandler
-    public void onPlayerMove(PlayerMoveEvent event) {
-        Location from = event.getFrom();
-        Location to = event.getTo();
-        if (to == null || (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ())) {
-            return;
-        }
-
-        Player player = event.getPlayer();
-        Room currentRoom = getRoomByLocation(to);
-        Room previousRoom = getRoomByLocation(from);
-
-        if (previousRoom != null && previousRoom != currentRoom) {
-            previousRoom.getInsidePlayers().remove(player.getUniqueId());
-        }
-
-        if (currentRoom != null && previousRoom != currentRoom) {
-            Set<UUID> inside = currentRoom.getInsidePlayers();
-
-            // 1. Klan Kontrolü (ApexClan)
-            for (UUID inId : inside) {
-                Player inPlayer = Bukkit.getPlayer(inId);
-                if (inPlayer != null && areInSameClan(player, inPlayer)) {
-                    player.teleport(player.getWorld().getSpawnLocation());
-                    player.sendMessage(ChatColor.RED + "Aynı klandan bir oyuncu odada olduğu için giremezsiniz! Spawna gönderildiniz.");
-                    return;
-                }
-            }
-
-            // 2. Kapasite Kontrolü (Maksimum 2 kişi)
-            if (inside.size() >= 2) {
-                player.teleport(player.getWorld().getSpawnLocation());
-                player.sendMessage(ChatColor.RED + "Oda dolu olduğu için Spawna gönderildiniz.");
-                return;
-            }
-
-            inside.add(player.getUniqueId());
-
-            // Tam 2 kişi girdiğinde kapıyı kapat ve dövüşü başlat
-            if (inside.size() == 2) {
-                currentRoom.closeDoor();
-                currentRoom.setLockedForFight(true);
-                for (UUID pId : inside) {
-                    Player p = Bukkit.getPlayer(pId);
-                    if (p != null) p.sendMessage(ChatColor.GOLD + "İkinci oyuncu da girdi! Kapılar kapandı, kapışma başladı!");
-                }
-            }
-        }
-    }
-
-    @EventHandler
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Player victim = event.getEntity();
-        Room room = getRoomByLocation(victim.getLocation());
-
-        if (room != null && room.isLockedForFight()) {
-            List<ItemStack> drops = new ArrayList<>(event.getDrops());
-            event.getDrops().clear();
-
-            Inventory lootMenu = Bukkit.createInventory(new DeathMenuHolder(), 54, ChatColor.DARK_RED + victim.getName() + " Eşyaları");
-            for (ItemStack item : drops) {
-                if (item != null && item.getType() != Material.AIR) {
-                    lootMenu.addItem(item);
-                }
-            }
-
-            room.getDeathLootGuis().put(victim.getUniqueId(), lootMenu);
-            room.getInsidePlayers().remove(victim.getUniqueId());
-
-            victim.sendMessage(ChatColor.YELLOW + "Öldünüz! 15 saniye sonra kapılar otomatik açılacaktır.");
-            room.start15SecondLootTimer();
-        }
-    }
-
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        Room room = getRoomByLocation(player.getLocation());
-
-        if (room != null && room.isLockedForFight() && !room.isFightEnded()) {
-            Inventory lootMenu = Bukkit.createInventory(new DeathMenuHolder(), 54, ChatColor.DARK_RED + player.getName() + " (Çıktı) Eşyaları");
-            for (ItemStack item : player.getInventory().getContents()) {
-                if (item != null && item.getType() != Material.AIR) {
-                    lootMenu.addItem(item);
-                }
-            }
-            player.getInventory().clear();
-
-            room.getDeathLootGuis().put(player.getUniqueId(), lootMenu);
-            room.getInsidePlayers().remove(player.getUniqueId());
-
-            for (UUID pId : room.getInsidePlayers()) {
-                Player survivor = Bukkit.getPlayer(pId);
-                if (survivor != null) {
-                    survivor.sendMessage(ChatColor.RED + player.getName() + " savaş sırasında oyundan çıktığı için öldü sayıldı! 15 saniye loot süresi başladı.");
-                }
-            }
-
-            room.start15SecondLootTimer();
-        }
-    }
-
-    @EventHandler
-    public void onLootMenuClick(PlayerInteractEvent event) {
-        Player player = event.getPlayer();
-        Room room = getRoomByLocation(player.getLocation());
-
-        if (room != null && room.isFightEnded()) {
-            if (!room.getDeathLootGuis().isEmpty() && event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                Inventory gui = room.getDeathLootGuis().values().iterator().next();
-                player.openInventory(gui);
-            }
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onCommandProcess(PlayerCommandPreprocessEvent event) {
-        Player player = event.getPlayer();
-        Room room = getRoomByLocation(player.getLocation());
-
-        if (room != null && room.isLockedForFight() && !room.isFightEnded()) {
-            if (!player.hasPermission("apexroom.admin")) {
-                event.setCancelled(true);
-                player.sendMessage(ChatColor.RED + "Düello devam ederken oda içinde komut kullanamazsınız!");
-            }
-        }
-    }
-
-    // --- YARDIMCI METOTLAR ---
-    private Room getRoomByLocation(Location loc) {
-        for (Room room : rooms.values()) {
-            if (room.isInside(loc)) return room;
-        }
+    @Override public List<String> onTabComplete(CommandSender s, Command c, String ali, String[] args) {
+        if (args.length == 1) return List.of("wand", "pos1", "pos2", "create", "setspawn1", "setspawn2", "kapicreate", "remove", "list");
+        if (args.length == 2 && List.of("create", "setspawn1", "setspawn2", "kapicreate", "remove").contains(args[0].toLowerCase()))
+            return new ArrayList<>(r.keySet());
         return null;
     }
 
-    private boolean areInSameClan(Player p1, Player p2) {
-        Plugin apexClanPlugin = Bukkit.getPluginManager().getPlugin("ApexClan");
-        if (apexClanPlugin == null || !apexClanPlugin.isEnabled()) return false;
+    @EventHandler public void onInteract(PlayerInteractEvent e) {
+        Player p = e.getPlayer(); ItemStack item = e.getItem();
+        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasDisplayName() || !item.getItemMeta().getDisplayName().contains("ApexRoom")) return;
+        Block b = e.getClickedBlock(); if (b == null) return;
+        e.setCancelled(true);
+        if (e.getAction() == Action.LEFT_CLICK_BLOCK) p1.put(p.getUniqueId(), b.getLocation());
+        else if (e.getAction() == Action.RIGHT_CLICK_BLOCK) p2.put(p.getUniqueId(), b.getLocation());
+        p.sendMessage(ChatColor.GREEN + "Konum seçildi.");
+    }
+
+    @EventHandler public void onMove(PlayerMoveEvent e) {
+        Location from = e.getFrom(), to = e.getTo();
+        if (to == null || (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ())) return;
+        Player p = e.getPlayer();
+        Room cur = r.values().stream().filter(room -> room.isInside(to)).findFirst().orElse(null);
+        Room prev = r.values().stream().filter(room -> room.isInside(from)).findFirst().orElse(null);
+
+        if (prev != null && prev != cur) prev.ins.remove(p.getUniqueId());
+        if (cur != null && prev != cur) {
+            for (UUID id : cur.ins) {
+                Player ip = Bukkit.getPlayer(id);
+                if (ip != null && sameClan(p, ip)) { p.teleport(p.getWorld().getSpawnLocation()); p.sendMessage(ChatColor.RED + "Aynı klan giremez!"); return; }
+            }
+            if (cur.ins.size() >= 2) { p.teleport(p.getWorld().getSpawnLocation()); p.sendMessage(ChatColor.RED + "Oda dolu!"); return; }
+            cur.ins.add(p.getUniqueId());
+            if (cur.ins.size() == 1) p.sendMessage(ChatColor.YELLOW + "Rooma giriş yaptın, diğer oyuncu bekleniyor...");
+            else if (cur.ins.size() == 2) {
+                cur.closeDoor(); cur.lock = true;
+                Iterator<UUID> it = cur.ins.iterator();
+                Player p1 = Bukkit.getPlayer(it.next()), p2 = Bukkit.getPlayer(it.next());
+                if (p1 != null && cur.s1 != null) p1.teleport(cur.s1);
+                if (p2 != null && cur.s2 != null) p2.teleport(cur.s2);
+                cur.ins.forEach(id -> {
+                    Player pl = Bukkit.getPlayer(id);
+                    if (pl != null) { pl.sendTitle(ChatColor.RED + "Savaş Başladı!", "", 10, 40, 10); pl.sendMessage(ChatColor.RED + "Savaş Başladı!"); }
+                });
+            }
+        }
+    }
+
+    @EventHandler public void onDeath(PlayerDeathEvent e) {
+        Player vic = e.getEntity();
+        Room room = r.values().stream().filter(ro -> ro.isInside(vic.getLocation())).findFirst().orElse(null);
+        if (room != null && room.lock) {
+            List<ItemStack> drops = new ArrayList<>(e.getDrops()); e.getDrops().clear();
+            Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + vic.getName() + " Loot");
+            drops.forEach(inv::addItem);
+            room.gui.put(vic.getUniqueId(), inv); room.ins.remove(vic.getUniqueId());
+            vic.sendMessage(ChatColor.YELLOW + "Öldün! 15 saniye sonra kapılar açılacak.");
+            room.startTimer();
+        }
+    }
+
+    @EventHandler public void onQuit(PlayerQuitEvent e) {
+        Player p = e.getPlayer();
+        Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
+        if (room != null && room.lock && !room.ended) {
+            Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + p.getName() + " Loot");
+            for (ItemStack it : p.getInventory().getContents()) if (it != null) inv.addItem(it);
+            p.getInventory().clear();
+            room.gui.put(p.getUniqueId(), inv); room.ins.remove(p.getUniqueId());
+            room.ins.forEach(id -> {
+                Player pl = Bukkit.getPlayer(id);
+                if (pl != null) pl.sendMessage(ChatColor.RED + p.getName() + " çıktığı için öldü sayıldı!");
+            });
+            room.startTimer();
+        }
+    }
+
+    @EventHandler public void onClick(PlayerInteractEvent e) {
+        Player p = e.getPlayer();
+        Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
+        if (room != null && room.ended && !room.gui.isEmpty() && e.getAction() == Action.RIGHT_CLICK_BLOCK)
+            p.openInventory(room.gui.values().iterator().next());
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onCmd(PlayerCommandPreprocessEvent e) {
+        Player p = e.getPlayer();
+        Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
+        if (room != null && room.lock && !room.ended && !p.hasPermission("apexroom.admin")) {
+            e.setCancelled(true); p.sendMessage(ChatColor.RED + "Komut yasak!");
+        }
+    }
+
+    private boolean sameClan(Player p1, Player p2) {
+        Plugin ac = Bukkit.getPluginManager().getPlugin("ApexClan");
+        if (ac == null || !ac.isEnabled()) return false;
         try {
-            Object clan1 = apexClanPlugin.getClass().getMethod("getClan", Player.class).invoke(apexClanPlugin, p1);
-            Object clan2 = apexClanPlugin.getClass().getMethod("getClan", Player.class).invoke(apexClanPlugin, p2);
-            if (clan1 != null && clan2 != null) return clan1.equals(clan2);
+            Object c1 = ac.getClass().getMethod("getClan", Player.class).invoke(ac, p1);
+            Object c2 = ac.getClass().getMethod("getClan", Player.class).invoke(ac, p2);
+            return c1 != null && c1.equals(c2);
         } catch (Exception ignored) {}
         return false;
     }
 
-    // --- İÇ SINIFLAR ---
     public static class Room {
-        private final String name;
-        private final Location corner1;
-        private final Location corner2;
-        private final List<Location> doorBlocks = new ArrayList<>();
-        private final Set<UUID> insidePlayers = new HashSet<>();
-        private final Map<UUID, Inventory> deathLootGuis = new HashMap<>();
-        private boolean doorClosed = false;
-        private boolean lockedForFight = false;
-        private boolean fightEnded = false;
+        String name; Location c1, c2, s1, s2;
+        List<Location> doors = new ArrayList<>();
+        Set<UUID> ins = new HashSet<>();
+        Map<UUID, Inventory> gui = new HashMap<>();
+        boolean closed = false, lock = false, ended = false;
 
-        public Room(String name, Location c1, Location c2) {
-            this.name = name;
-            this.corner1 = c1;
-            this.corner2 = c2;
+        public Room(String name, Location c1, Location c2) { this.name = name; this.c1 = c1; this.c2 = c2; }
+        public boolean isInside(Location l) {
+            if (c1 == null || c2 == null || l.getWorld() == null || !l.getWorld().equals(c1.getWorld())) return false;
+            return l.getX() >= Math.min(c1.getX(), c2.getX()) && l.getX() <= Math.max(c1.getX(), c2.getX()) &&
+                   l.getY() >= Math.min(c1.getY(), c2.getY()) && l.getY() <= Math.max(c1.getY(), c2.getY()) &&
+                   l.getZ() >= Math.min(c1.getZ(), c2.getZ()) && l.getZ() <= Math.max(c1.getZ(), c2.getZ());
         }
-
-        public boolean isInside(Location loc) {
-            if (corner1 == null || corner2 == null || loc.getWorld() == null) return false;
-            if (!loc.getWorld().equals(corner1.getWorld())) return false;
-            double minX = Math.min(corner1.getX(), corner2.getX());
-            double maxX = Math.max(corner1.getX(), corner2.getX());
-            double minY = Math.min(corner1.getY(), corner2.getY());
-            double maxY = Math.max(corner1.getY(), corner2.getY());
-            double minZ = Math.min(corner1.getZ(), corner2.getZ());
-            double maxZ = Math.max(corner1.getZ(), corner2.getZ());
-            return loc.getX() >= minX && loc.getX() <= maxX &&
-                   loc.getY() >= minY && loc.getY() <= maxY &&
-                   loc.getZ() >= minZ && loc.getZ() <= maxZ;
-        }
-
         public void closeDoor() {
-            if (doorClosed) return;
-            doorClosed = true;
-            for (Location loc : doorBlocks) {
-                loc.getBlock().setType(Material.BARRIER);
-            }
+            if (closed) return; closed = true;
+            doors.forEach(l -> l.getBlock().setType(Material.BARRIER));
         }
-
         public void openDoor() {
-            doorClosed = false;
-            lockedForFight = false;
-            fightEnded = false;
-            for (Location loc : doorBlocks) {
-                loc.getBlock().setType(Material.AIR);
-            }
+            closed = false; lock = false; ended = false;
+            doors.forEach(l -> l.getBlock().setType(Material.AIR));
         }
-
-        public void start15SecondLootTimer() {
-            this.fightEnded = true;
-            Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> {
-                openDoor();
-                deathLootGuis.clear();
-            }, 15 * 20L); // 15 Saniye sonra kapılar açılır
+        public void startTimer() {
+            ended = true;
+            Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> { openDoor(); gui.clear(); }, 15 * 20L);
         }
-
-        public List<Location> getDoorBlocks() { return doorBlocks; }
-        public Set<UUID> getInsidePlayers() { return insidePlayers; }
-        public Map<UUID, Inventory> getDeathLootGuis() { return deathLootGuis; }
-        public boolean isLockedForFight() { return lockedForFight; }
-        public void setLockedForFight(boolean locked) { this.lockedForFight = locked; }
-        public boolean isFightEnded() { return fightEnded; }
     }
-
-    public static class DeathMenuHolder implements InventoryHolder {
-        @Override
-        public Inventory getInventory() { return null; }
-    }
-}
+                }
