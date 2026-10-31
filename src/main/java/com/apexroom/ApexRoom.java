@@ -6,6 +6,8 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.command.*;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.block.Action;
@@ -17,21 +19,102 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 public final class ApexRoom extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     private static ApexRoom i;
     private final Map<String, Room> r = new HashMap<>();
     private final Map<UUID, Location> p1 = new HashMap<>(), p2 = new HashMap<>();
+    private File roomFile;
+    private FileConfiguration roomConfig;
 
     @Override public void onEnable() {
         i = this;
         getServer().getPluginManager().registerEvents(this, this);
         getCommand("room").setExecutor(this);
         getCommand("room").setTabCompleter(this);
+        
+        setupRoomFile();
+        loadRooms();
     }
-    @Override public void onDisable() { r.values().forEach(Room::openDoor); }
+
+    @Override public void onDisable() { 
+        r.values().forEach(Room::openDoor); 
+        saveRooms();
+    }
+
     public static ApexRoom getInstance() { return i; }
+
+    // --- DOSYA VE KAYIT YÖNETİMİ ---
+    private void setupRoomFile() {
+        if (!getDataFolder().exists()) getDataFolder().mkdir();
+        roomFile = new File(getDataFolder(), "rooms.yml");
+        if (!roomFile.exists()) {
+            try { roomFile.createNewFile(); } catch (IOException ignored) {}
+        }
+        roomConfig = YamlConfiguration.loadConfiguration(roomFile);
+    }
+
+    private void saveRooms() {
+        roomConfig.set("rooms", null); // Eskileri temizle
+        for (Map.Entry<String, Room> entry : r.entrySet()) {
+            String name = entry.getKey();
+            Room room = entry.getValue();
+            String path = "rooms." + name + ".";
+            
+            roomConfig.set(path + "c1", room.c1);
+            roomConfig.set(path + "c2", room.c2);
+            roomConfig.set(path + "s1", room.s1);
+            roomConfig.set(path + "s2", room.s2);
+            
+            List<String> doorStrs = new ArrayList<>();
+            for (Location d : room.doors) {
+                doorStrs.add(serializeLocation(d));
+            }
+            roomConfig.set(path + "doors", doorStrs);
+        }
+        try { roomConfig.save(roomFile); } catch (IOException ignored) {}
+    }
+
+    private void loadRooms() {
+        if (!roomConfig.contains("rooms")) return;
+        var section = roomConfig.getConfigurationSection("rooms");
+        if (section == null) return;
+
+        for (String name : section.getKeys(false)) {
+            String path = "rooms." + name + ".";
+            Location c1 = roomConfig.getLocation(path + "c1");
+            Location c2 = roomConfig.getLocation(path + "c2");
+            Location s1 = roomConfig.getLocation(path + "s1");
+            Location s2 = roomConfig.getLocation(path + "s2");
+
+            Room room = new Room(name, c1, c2);
+            room.s1 = s1;
+            room.s2 = s2;
+
+            List<String> doorStrs = roomConfig.getStringList(path + "doors");
+            for (String dStr : doorStrs) {
+                Location dLoc = deserializeLocation(dStr);
+                if (dLoc != null) room.doors.add(dLoc);
+            }
+            r.put(name.toLowerCase(), room);
+        }
+        getLogger().info(r.size()  + " adet oda dosyadan basariyla yuklendi!");
+    }
+
+    private String serializeLocation(Location l) {
+        if (l == null || l.getWorld() == null) return "";
+        return l.getWorld().getName() + "," + l.getX() + "," + l.getY() + "," + l.getZ();
+    }
+
+    private Location deserializeLocation(String s) {
+        if (s == null || s.isEmpty()) return null;
+        String[] p = s.split(",");
+        if (p.length < 4) return null;
+        return new Location(Bukkit.getWorld(p[0]), Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3]));
+    }
 
     @Override public boolean onCommand(CommandSender s, Command c, String l, String[] args) {
         if (!(s instanceof Player p)) return true;
@@ -50,12 +133,14 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
             Location l1 = p1.get(p.getUniqueId()), l2 = p2.get(p.getUniqueId());
             if (l1 == null || l2 == null) { p.sendMessage(ChatColor.RED + "Önce 2 nokta seç!"); return true; }
             r.put(args[1].toLowerCase(), new Room(args[1], l1, l2));
-            p.sendMessage(ChatColor.GREEN + "Oda oluşturuldu!");
+            saveRooms();
+            p.sendMessage(ChatColor.GREEN + "Oda oluşturuldu ve kaydedildi!");
         } else if ((sub.equals("setspawn1") || sub.equals("setspawn2")) && args.length > 1) {
             Room room = r.get(args[1].toLowerCase());
             if (room != null) {
                 if (sub.equals("setspawn1")) room.s1 = p.getLocation(); else room.s2 = p.getLocation();
-                p.sendMessage(ChatColor.GREEN + "Spawn ayarlandı!");
+                saveRooms();
+                p.sendMessage(ChatColor.GREEN + "Spawn ayarlandı ve kaydedildi!");
             }
         } else if (sub.equals("kapicreate") && args.length > 1) {
             Room room = r.get(args[1].toLowerCase());
@@ -68,12 +153,14 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
                     for (double y = minY; y <= maxY; y++)
                         for (double z = minZ; z <= maxZ; z++)
                             room.doors.add(new Location(l1.getWorld(), x, y, z));
-                p.sendMessage(ChatColor.GREEN + "Kapı eklendi!");
+                saveRooms();
+                p.sendMessage(ChatColor.GREEN + "Kapı eklendi ve kaydedildi!");
             }
         } else if (sub.equals("remove") && args.length > 1) {
             Room rm = r.remove(args[1].toLowerCase());
             if (rm != null) rm.openDoor();
-            p.sendMessage(ChatColor.GREEN + "İşlem tamam.");
+            saveRooms();
+            p.sendMessage(ChatColor.GREEN + "Oda silindi ve dosyadan kaldırıldı.");
         } else if (sub.equals("list")) {
             p.sendMessage(ChatColor.GOLD + "Odalar: " + String.join(", ", r.keySet()));
         }
@@ -124,7 +211,6 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
                     if (pl != null) { pl.sendTitle(ChatColor.RED + "Savaş Başladı!", "", 10, 40, 10); pl.sendMessage(ChatColor.RED + "Savaş Başladı!"); }
                 });
 
-                // 10 Dakika (600 Saniye) Zaman Aşımı Zamanlayıcısı
                 cur.maxTask = Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> {
                     if (cur.lock && !cur.ended) {
                         cur.ins.forEach(id -> {
@@ -145,7 +231,7 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         Player vic = e.getEntity();
         Room room = r.values().stream().filter(ro -> ro.isInside(vic.getLocation())).findFirst().orElse(null);
         if (room != null && room.lock) {
-            room.ended = true; // Savaş bitti, komut kısıtlaması kalktı
+            room.ended = true; 
             if (room.maxTask != null) room.maxTask.cancel();
             List<ItemStack> drops = new ArrayList<>(e.getDrops()); e.getDrops().clear();
             Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + vic.getName() + " Loot");
@@ -160,7 +246,7 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
         Player p = e.getPlayer();
         Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
         if (room != null && room.lock && !room.ended) {
-            room.ended = true; // Oyunda kalanlar için komut kısıtlaması kalktı
+            room.ended = true; 
             if (room.maxTask != null) room.maxTask.cancel();
             Inventory inv = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + p.getName() + " Loot");
             for (ItemStack it : p.getInventory().getContents()) if (it != null) inv.addItem(it);
@@ -185,7 +271,6 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
     public void onCmd(PlayerCommandPreprocessEvent e) {
         Player p = e.getPlayer();
         Room room = r.values().stream().filter(ro -> ro.isInside(p.getLocation())).findFirst().orElse(null);
-        // Savaş devam ederken ADMIN DÂHİL Herkese Komut Engellemesi
         if (room != null && room.lock && !room.ended) {
             e.setCancelled(true); 
             p.sendMessage(ChatColor.RED + "Savaş devam ederken komut yazamazsınız!");
@@ -231,4 +316,4 @@ public final class ApexRoom extends JavaPlugin implements Listener, CommandExecu
             Bukkit.getScheduler().runTaskLater(ApexRoom.getInstance(), () -> { openDoor(); gui.clear(); ins.clear(); }, 15 * 20L);
         }
     }
-                }
+                             }
