@@ -74,7 +74,6 @@ public class RoomListener implements Listener {
         UUID uuid = player.getUniqueId();
         for (Room room : plugin.getRooms().values()) {
             if (room.hasPlayer(uuid)) {
-                // Sadece savaş başladıysa ve ganimet süresinde değilse komutlar engellenir
                 if (room.isBattleStarted() && !room.isInLootTime()) {
                     event.setCancelled(true);
                     player.sendMessage(ChatColor.RED + "Savaş başladığı için odada komut kullanamazsınız!");
@@ -110,7 +109,7 @@ public class RoomListener implements Listener {
         }
         victim.sendMessage(ChatColor.RED + "Odada öldün! Spawna gönderiliyorsun.");
 
-        // Ölen oyuncu hemen /spawn komutu ile spawna gönderilir
+        // Ölen oyuncu anında spawna atılır
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (victim.isOnline() && victim.isDead()) {
                 victim.spigot().respawn();
@@ -118,7 +117,7 @@ public class RoomListener implements Listener {
             victim.performCommand("spawn");
         });
 
-        // Öldüren oyuncu için 15 saniye ganimet süresi başlar
+        // Öldüren için 15s ganimet timer başlatılır
         Room finalTarget = target;
         target.startLootTimer(plugin, ZRoom.LOOT_TIME_SECONDS, () -> handleLootTimerEnd(finalTarget));
     }
@@ -256,14 +255,17 @@ public class RoomListener implements Listener {
     }
 
     private void enterRoom(Room room, Player player) {
+        // 3. Oyuncu veya fazlası girdiğinde anında spawna gönder
         if (room.isFull()) {
             plugin.sendToServerSpawn(player, "Oda dolu (Maksimum " + ZRoom.MAX_PLAYERS + " kişi)!");
             return;
         }
 
+        // Odadaki mevcut oyuncu ile klan kontrolü yap
         for (UUID existingUUID : room.getPlayers()) {
             Player existing = Bukkit.getPlayer(existingUUID);
-            if (existing != null && ZRoom.areInSameClan(player, existing)) {
+            if (existing != null && plugin.areInSameClan(player, existing)) {
+                // Aynı klandan yeni girmeye çalışan oyuncuyu doğrudan spawna gönder
                 plugin.sendToServerSpawn(player, "Aynı klandan iki oyuncu aynı odaya giremez!");
                 return;
             }
