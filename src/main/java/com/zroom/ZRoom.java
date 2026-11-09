@@ -68,7 +68,6 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         forceSpawnOnRespawn.clear();
     }
 
-    // Getter ve Setter'lar (RoomListener tarafından kullanılır)
     public Map<String, Room> getRooms() { return rooms; }
     public Map<UUID, Location> getPos1Map() { return pos1Map; }
     public Map<UUID, Location> getPos2Map() { return pos2Map; }
