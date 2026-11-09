@@ -21,6 +21,15 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
+    - name: ApexClans Yerel Jar Dosyasını Maven'a Yükle
+      run: |
+        mvn install:install-file \
+          -Dfile=libs/ApexClans.jar \
+          -DgroupId=net.sacredcraft \
+          -DartifactId=apexclans \
+          -Dversion=1.0 \
+          -Dpackaging=jar
+
     - name: Maven ile Derle
       run: mvn clean package --file pom.xml
 
@@ -29,3 +38,4 @@ jobs:
       with:
         name: ZRoom-Plugin
         path: target/*.jar
+        
