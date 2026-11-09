@@ -1,0 +1,38 @@
+# ZRoom Arena ve Oda Kayıt Dosyası
+# Uyarı: Bu dosya oyun içi komutlar (/room create, /room setdoor, /room setspawn1, /room setspawn2) 
+# kullanıldığında otomatik olarak güncellenir. Manual değiştirirken koordinatlara dikkat ediniz.
+
+rooms:
+  arena1:
+    name: "arena1"
+    room:
+      world: "world"
+      min-x: -100
+      min-y: 60
+      min-z: -100
+      max-x: -50
+      max-y: 80
+      max-z: -50
+    door:
+      world: "world"
+      min-x: -76
+      min-y: 64
+      min-z: -100
+      max-x: -74
+      max-y: 67
+      max-z: -100
+    spawn1:
+      world: "world"
+      x: -90.5
+      y: 64.0
+      z: -75.5
+      yaw: 90.0
+      pitch: 0.0
+    spawn2:
+      world: "world"
+      x: -60.5
+      y: 64.0
+      z: -75.5
+      yaw: -90.0
+      pitch: 0.0
+      
