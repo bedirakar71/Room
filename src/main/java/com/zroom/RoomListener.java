@@ -71,14 +71,13 @@ public class RoomListener implements Listener {
         if (event.isCancelled()) return;
 
         Player player = event.getPlayer();
-
-        // OP'ler dahil kimse oda içerisindeyken ganimet süresine girilmediyse komut kullanamaz
         UUID uuid = player.getUniqueId();
         for (Room room : plugin.getRooms().values()) {
             if (room.hasPlayer(uuid)) {
-                if (!room.isInLootTime()) {
+                // Sadece savaş başladıysa ve ganimet süresinde değilse komutlar engellenir
+                if (room.isBattleStarted() && !room.isInLootTime()) {
                     event.setCancelled(true);
-                    player.sendMessage(ChatColor.RED + "Odada komut kullanamazsınız!");
+                    player.sendMessage(ChatColor.RED + "Savaş başladığı için odada komut kullanamazsınız!");
                 }
                 return;
             }
@@ -101,7 +100,6 @@ public class RoomListener implements Listener {
         }
         if (target == null || !target.isBattleStarted()) return;
 
-        // Ölen oyuncuyu odadan çıkarıyoruz ki ganimet süresi sadece öldüne kalmasın
         target.removePlayer(victimId);
         plugin.getForceSpawnOnRespawn().add(victimId);
 
@@ -112,24 +110,20 @@ public class RoomListener implements Listener {
         }
         victim.sendMessage(ChatColor.RED + "Odada öldün! Spawna gönderiliyorsun.");
 
-        // Ölen oyuncuyu ölüm ekranında bekletmeden hemen respawn ettirip spawna ışınlıyoruz
+        // Ölen oyuncu hemen /spawn komutu ile spawna gönderilir
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (victim.isOnline() && victim.isDead()) {
                 victim.spigot().respawn();
             }
-            Location spawn = ZRoom.getServerSpawn();
-            if (spawn != null) {
-                plugin.safeTeleport(victim, spawn);
-            }
+            victim.performCommand("spawn");
         });
 
-        // Öldüren oyuncu için 15 saniyelik ganimet süresini başlatıyoruz (odada kalmaya devam eder)
+        // Öldüren oyuncu için 15 saniye ganimet süresi başlar
         Room finalTarget = target;
         target.startLootTimer(plugin, ZRoom.LOOT_TIME_SECONDS, () -> handleLootTimerEnd(finalTarget));
     }
 
     private void handleLootTimerEnd(Room room) {
-        Location spawn = ZRoom.getServerSpawn();
         List<UUID> players = room.getPlayers();
         room.clearAllSlots();
 
@@ -137,7 +131,7 @@ public class RoomListener implements Listener {
             Player p = Bukkit.getPlayer(uuid);
             if (p != null) {
                 p.sendMessage(ChatColor.RED + "Ganimet süresi doldu! Spawna gönderildiniz.");
-                if (spawn != null) plugin.safeTeleport(p, spawn);
+                p.performCommand("spawn");
             }
         }
         room.openDoors();
@@ -167,10 +161,7 @@ public class RoomListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onRespawn(PlayerRespawnEvent event) {
         if (plugin.getForceSpawnOnRespawn().remove(event.getPlayer().getUniqueId())) {
-            Location spawn = ZRoom.getServerSpawn();
-            if (spawn != null) {
-                event.setRespawnLocation(spawn);
-            }
+            event.getPlayer().performCommand("spawn");
         }
         scheduleCheck(event.getPlayer().getUniqueId());
     }
@@ -214,11 +205,8 @@ public class RoomListener implements Listener {
 
             if (inside && !registered) {
                 if (room.isInLootTime()) {
-                    Location spawn = ZRoom.getServerSpawn();
-                    if (spawn != null) {
-                        player.sendMessage(ChatColor.RED + "Ganimet süresi boyunca odaya giremezsiniz!");
-                        plugin.safeTeleport(player, spawn);
-                    }
+                    player.sendMessage(ChatColor.RED + "Ganimet süresi boyunca odaya giremezsiniz!");
+                    player.performCommand("spawn");
                     continue;
                 }
                 enterRoom(room, player);
@@ -227,10 +215,8 @@ public class RoomListener implements Listener {
                     continue;
                 }
                 if (room.isBattleStarted()) {
-                    // Savaş başladıktan sonra odadan dışarı çıkarsa yenik sayılır, eşyaları düşer
                     handlePlayerEscapeOrQuit(room, uuid);
                 } else {
-                    // Henüz savaş başlamamışken dışarı çıkarsa odadan silinir
                     room.removePlayer(uuid);
                     player.sendMessage(ChatColor.YELLOW + "Odadan ayrıldınız.");
                 }
