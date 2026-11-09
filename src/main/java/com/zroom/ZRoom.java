@@ -1,11 +1,12 @@
 package com.zroom;
 
+import net.sacredcraft.apexclans.ApexClans;
+import net.sacredcraft.apexclans.clan.Clan;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -15,6 +16,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Arrays;
@@ -39,6 +41,7 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
     private final Set<UUID> forceSpawnOnRespawn = new HashSet<>();
 
     private boolean internalTeleport = false;
+    private boolean apexClansHooked = false;
 
     @Override
     public void onEnable() {
@@ -52,6 +55,16 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         getServer().getPluginManager().registerEvents(new RoomListener(this), this);
         saveDefaultConfig();
         loadRooms();
+
+        // ApexClans hook kontrolü
+        Plugin apexPlugin = Bukkit.getPluginManager().getPlugin("ApexClans");
+        if (apexPlugin != null && apexPlugin.isEnabled()) {
+            apexClansHooked = true;
+            getLogger().info("ApexClans başarıyla bağlandı! Klan içi savaş engelleri aktif.");
+        } else {
+            getLogger().warning("ApexClans bulunamadı. Klan kontrolleri devre dışı kalacak.");
+        }
+
         getLogger().info("ZRoom eklentisi aktif! " + rooms.size() + " oda yüklendi. Ganimet süresi: " + LOOT_TIME_SECONDS + " sn");
     }
 
@@ -383,7 +396,19 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         player.performCommand("spawn");
     }
 
-    public static boolean areInSameClan(Player p1, Player p2) {
-        return false;
+    // ApexClans Entegrasyonu Kontrolü
+    public boolean areInSameClan(Player p1, Player p2) {
+        if (!apexClansHooked) return false;
+        try {
+            ApexClans apexClans = ApexClans.getPlugin(ApexClans.class);
+            if (apexClans == null) return false;
+            
+            Clan clan1 = apexClans.getClanManager().getClan(p1);
+            Clan clan2 = apexClans.getClanManager().getClan(p2);
+
+            return clan1 != null && clan2 != null && clan1.equals(clan2);
+        } catch (Exception e) {
+            return false;
+        }
     }
-            }
+}
