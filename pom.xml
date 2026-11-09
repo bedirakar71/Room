@@ -22,6 +22,7 @@
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
+        <!-- SpigotMC Repository -->
         <repository>
             <id>spigotmc-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
@@ -29,7 +30,7 @@
     </repositories>
 
     <dependencies>
-        <!-- Paper API -->
+        <!-- Paper API (1.20.4) -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
@@ -37,11 +38,14 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- 
-          Not: ApexClans genellikle açık bir Maven deposunda bulunmadığı için 
-          projeyi derlerken (IntelliJ IDEA / Eclipse kullanıyorsanız) ApexClans.jar 
-          dosyasını projenizin 'Dependencies / Build Path' kısmına harici olarak eklemelisiniz.
-        -->
+        <!-- ApexClans Local Jar Dependency -->
+        <dependency>
+            <groupId>net.sacredcraft</groupId>
+            <artifactId>apexclans</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/ApexClans.jar</systemPath>
+        </dependency>
     </dependencies>
 
     <build>
