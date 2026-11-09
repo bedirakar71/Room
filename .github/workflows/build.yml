@@ -1,0 +1,31 @@
+name: Build ZRoom Plugin
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Repository'yi Klonla
+      uses: actions/checkout@v4
+
+    - name: Java 21 Kurulumu
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Maven ile Derle
+      run: mvn clean package --file pom.xml
+
+    - name: JAR Dosyasını Kaydet (Artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ZRoom-Plugin
+        path: target/*.jar
