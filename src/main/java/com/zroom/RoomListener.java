@@ -19,6 +19,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
 import java.util.UUID;
@@ -70,8 +71,8 @@ public class RoomListener implements Listener {
         if (event.isCancelled()) return;
 
         Player player = event.getPlayer();
-        if (player.hasPermission(PERMISSION)) return;
 
+        // OP'ler dahil kimse oda içerisindeyken ganimet süresine girilmediyse komut kullanamaz
         UUID uuid = player.getUniqueId();
         for (Room room : plugin.getRooms().values()) {
             if (room.hasPlayer(uuid)) {
@@ -91,29 +92,40 @@ public class RoomListener implements Listener {
 
         plugin.getForceSpawnOnRespawn().remove(victimId);
 
-        Player killer = victim.getKiller();
-        if (killer == null) return;
-
-        UUID killerId = killer.getUniqueId();
-
         Room target = null;
         for (Room room : plugin.getRooms().values()) {
-            if (room.hasPlayer(victimId) && room.hasPlayer(killerId)) {
+            if (room.hasPlayer(victimId)) {
                 target = room;
                 break;
             }
         }
-        if (target == null) return;
+        if (target == null || !target.isBattleStarted()) return;
 
+        // Ölen oyuncuyu odadan çıkarıyoruz ki ganimet süresi sadece öldüne kalmasın
         target.removePlayer(victimId);
         plugin.getForceSpawnOnRespawn().add(victimId);
 
+        Player killer = victim.getKiller();
+        if (killer != null) {
+            killer.sendMessage(ChatColor.GREEN + "Rakibini yendin! " + ZRoom.LOOT_TIME_SECONDS
+                    + " saniye ganimet süren var. Komutlar artık serbest.");
+        }
+        victim.sendMessage(ChatColor.RED + "Odada öldün! Spawna gönderiliyorsun.");
+
+        // Ölen oyuncuyu ölüm ekranında bekletmeden hemen respawn ettirip spawna ışınlıyoruz
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (victim.isOnline() && victim.isDead()) {
+                victim.spigot().respawn();
+            }
+            Location spawn = ZRoom.getServerSpawn();
+            if (spawn != null) {
+                plugin.safeTeleport(victim, spawn);
+            }
+        });
+
+        // Öldüren oyuncu için 15 saniyelik ganimet süresini başlatıyoruz (odada kalmaya devam eder)
         Room finalTarget = target;
         target.startLootTimer(plugin, ZRoom.LOOT_TIME_SECONDS, () -> handleLootTimerEnd(finalTarget));
-
-        killer.sendMessage(ChatColor.GREEN + "Rakibini yendin! " + ZRoom.LOOT_TIME_SECONDS
-                + " saniye ganimet süren var. Komutlar artık serbest.");
-        victim.sendMessage(ChatColor.RED + "Odada öldün! Spawna gönderiliyorsun.");
     }
 
     private void handleLootTimerEnd(Room room) {
@@ -176,7 +188,7 @@ public class RoomListener implements Listener {
 
         for (Room room : plugin.getRooms().values()) {
             if (room.hasPlayer(uuid)) {
-                leaveRoom(room, uuid);
+                handlePlayerEscapeOrQuit(room, uuid);
             }
         }
     }
@@ -211,7 +223,48 @@ public class RoomListener implements Listener {
                 }
                 enterRoom(room, player);
             } else if (!inside && registered) {
-                leaveRoom(room, uuid);
+                if (room.isInLootTime()) {
+                    continue;
+                }
+                if (room.isBattleStarted()) {
+                    // Savaş başladıktan sonra odadan dışarı çıkarsa yenik sayılır, eşyaları düşer
+                    handlePlayerEscapeOrQuit(room, uuid);
+                } else {
+                    // Henüz savaş başlamamışken dışarı çıkarsa odadan silinir
+                    room.removePlayer(uuid);
+                    player.sendMessage(ChatColor.YELLOW + "Odadan ayrıldınız.");
+                }
+            }
+        }
+    }
+
+    private void handlePlayerEscapeOrQuit(Room room, UUID uuid) {
+        Player player = Bukkit.getPlayer(uuid);
+        room.removePlayer(uuid);
+
+        if (player != null) {
+            Location dropLoc = player.getLocation();
+            if (dropLoc.getWorld() != null) {
+                for (ItemStack item : player.getInventory().getContents()) {
+                    if (item != null && !item.getType().isAir()) {
+                        dropLoc.getWorld().dropItemNaturally(dropLoc, item);
+                    }
+                }
+                player.getInventory().clear();
+            }
+            player.sendMessage(ChatColor.RED + "Odadan çıktığınız için yenik sayıldınız!");
+            plugin.getForceSpawnOnRespawn().add(uuid);
+            plugin.sendToServerSpawn(player, "Odadan kaçtınız!");
+        }
+
+        Room finalRoom = room;
+        room.startLootTimer(plugin, ZRoom.LOOT_TIME_SECONDS, () -> handleLootTimerEnd(finalRoom));
+
+        for (UUID remainingUuid : room.getPlayers()) {
+            Player rem = Bukkit.getPlayer(remainingUuid);
+            if (rem != null) {
+                rem.sendMessage(ChatColor.GREEN + "Rakibiniz odadan ayrıldı! " + ZRoom.LOOT_TIME_SECONDS
+                        + " saniye ganimet süreniz var.");
             }
         }
     }
@@ -230,22 +283,26 @@ public class RoomListener implements Listener {
             }
         }
 
-        int slot = room.addPlayer(player.getUniqueId());
-        Location spawn = room.getSpawn(slot);
-        if (spawn != null) {
-            plugin.safeTeleport(player, spawn);
-        }
+        room.addPlayer(player.getUniqueId());
 
-        if (room.isFull()) {
+        if (room.getPlayerCount() == 1) {
+            player.sendMessage(ChatColor.YELLOW + "Diğer oyuncu bekleniyor...");
+        } else if (room.isFull()) {
+            room.setBattleStarted(true);
+
+            List<UUID> players = room.getPlayers();
+            for (int i = 0; i < players.size(); i++) {
+                Player p = Bukkit.getPlayer(players.get(i));
+                if (p != null) {
+                    Location spawn = room.getSpawn(i);
+                    if (spawn != null) {
+                        plugin.safeTeleport(p, spawn);
+                    }
+                    p.sendTitle(ChatColor.RED + "Savaş Başladı!", "", 10, 40, 10);
+                    p.sendMessage(ChatColor.RED + "Savaş Başladı!");
+                }
+            }
             room.closeDoors();
-        }
-    }
-
-    private void leaveRoom(Room room, UUID uuid) {
-        room.removePlayer(uuid);
-
-        if (!room.isFull() && !room.isInLootTime()) {
-            room.openDoors();
         }
     }
 }
