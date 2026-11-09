@@ -369,11 +369,6 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         return loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ();
     }
 
-    public static Location getServerSpawn() {
-        if (Bukkit.getWorlds().isEmpty()) return null;
-        return Bukkit.getWorlds().get(0).getSpawnLocation().add(0.5, 0, 0.5);
-    }
-
     public void safeTeleport(Player player, Location loc) {
         internalTeleport = true;
         try {
@@ -385,11 +380,10 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
 
     public void sendToServerSpawn(Player player, String reason) {
         player.sendMessage(ChatColor.RED + reason + " Spawna gönderildiniz.");
-        Location spawn = getServerSpawn();
-        if (spawn != null) safeTeleport(player, spawn);
+        player.performCommand("spawn");
     }
 
     public static boolean areInSameClan(Player p1, Player p2) {
         return false;
     }
-}
+            }
