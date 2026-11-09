@@ -1,7 +1,5 @@
 package com.zroom;
 
-import net.sacredcraft.apexclans.ApexClans;
-import net.sacredcraft.apexclans.clan.Clan;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -19,6 +17,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -56,7 +55,6 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         saveDefaultConfig();
         loadRooms();
 
-        // ApexClans hook kontrolü
         Plugin apexPlugin = Bukkit.getPluginManager().getPlugin("ApexClans");
         if (apexPlugin != null && apexPlugin.isEnabled()) {
             apexClansHooked = true;
@@ -396,15 +394,19 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         player.performCommand("spawn");
     }
 
-    // ApexClans Entegrasyonu Kontrolü
+    // ApexClans Entegrasyonu (Yansıma / Reflection ile hatasız kontrol)
     public boolean areInSameClan(Player p1, Player p2) {
         if (!apexClansHooked) return false;
         try {
-            ApexClans apexClans = ApexClans.getPlugin(ApexClans.class);
-            if (apexClans == null) return false;
-            
-            Clan clan1 = apexClans.getClanManager().getClan(p1);
-            Clan clan2 = apexClans.getClanManager().getClan(p2);
+            Plugin apexPlugin = Bukkit.getPluginManager().getPlugin("ApexClans");
+            if (apexPlugin == null) return false;
+
+            Object clanManager = apexPlugin.getClass().getMethod("getClanManager").invoke(apexPlugin);
+            if (clanManager == null) return false;
+
+            Method getClanMethod = clanManager.getClass().getMethod("getClan", Player.class);
+            Object clan1 = getClanMethod.invoke(clanManager, p1);
+            Object clan2 = getClanMethod.invoke(clanManager, p2);
 
             return clan1 != null && clan2 != null && clan1.equals(clan2);
         } catch (Exception e) {
