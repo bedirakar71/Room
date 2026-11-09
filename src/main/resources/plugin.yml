@@ -1,0 +1,18 @@
+name: ZRoom
+version: 1.0
+main: com.zroom.ZRoom
+api-version: '1.20'
+authors: [ZRoom]
+description: PvP oda ve ganimet yönetim eklentisi.
+
+commands:
+  room:
+    description: ZRoom oda yönetim komutları
+    permission: zroom.admin
+    permission-message: §cBu komutu kullanmak için yetkiniz yok!
+    usage: /room <wand|create|setdoor|setspawn1|setspawn2|delete> [oda_adi]
+
+permissions:
+  zroom.admin:
+    description: ZRoom eklentisinin tüm yönetim komutlarına erişim sağlar.
+    default: op
