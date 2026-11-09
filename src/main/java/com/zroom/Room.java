@@ -19,11 +19,12 @@ public class Room {
     private final String name;
     private Cuboid roomCuboid;
     private Cuboid doorCuboid;
-    private final UUID[] slots = new UUID[2]; // MAX_PLAYERS = 2
+    private final UUID[] slots = new UUID[2];
     private final Location[] spawns = new Location[2];
     private final Map<Location, BlockData> originalDoorBlocks = new HashMap<>();
 
     private boolean inLootTime = false;
+    private boolean battleStarted = false;
     private BukkitTask lootTimerTask = null;
 
     public Room(String name) { this.name = name; }
@@ -50,13 +51,21 @@ public class Room {
     }
 
     public boolean hasPlayer(UUID uuid) {
-        for (UUID id : slots) if (uuid.equals(id)) return true;
+        for (UUID id : slots) if (uuid != null && uuid.equals(id)) return true;
         return false;
     }
 
     public boolean isFull() {
         for (UUID id : slots) if (id == null) return false;
         return true;
+    }
+
+    public int getPlayerCount() {
+        int count = 0;
+        for (UUID id : slots) {
+            if (id != null) count++;
+        }
+        return count;
     }
 
     public List<UUID> getPlayers() {
@@ -83,9 +92,12 @@ public class Room {
 
     public void clearAllSlots() {
         Arrays.fill(slots, null);
+        battleStarted = false;
     }
 
     public boolean isInLootTime() { return inLootTime; }
+    public boolean isBattleStarted() { return battleStarted; }
+    public void setBattleStarted(boolean battleStarted) { this.battleStarted = battleStarted; }
 
     public void startLootTimer(JavaPlugin plugin, int seconds, Runnable onEnd) {
         if (inLootTime) return;
