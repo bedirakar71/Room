@@ -28,7 +28,7 @@ import java.util.UUID;
 
 public final class ZRoom extends JavaPlugin implements CommandExecutor {
 
-    private static final String PERMISSION = "zroom.admin";
+    public static final String PERMISSION = "zroom.admin";
     private static final String WAND_NAME = ChatColor.GOLD + "ZRoom Seçim Baltası";
     public static final int MAX_PLAYERS = 2;
     private static final long MAX_DOOR_VOLUME = 10_000L;
@@ -40,7 +40,7 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
     private final Set<UUID> forceSpawnOnRespawn = new HashSet<>();
 
     private boolean internalTeleport = false;
-    private boolean apexClansHooked = false;
+    private Plugin apexClanPlugin = null;
 
     @Override
     public void onEnable() {
@@ -55,12 +55,11 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         saveDefaultConfig();
         loadRooms();
 
-        Plugin apexPlugin = Bukkit.getPluginManager().getPlugin("ApexClans");
-        if (apexPlugin != null && apexPlugin.isEnabled()) {
-            apexClansHooked = true;
-            getLogger().info("ApexClans başarıyla bağlandı! Klan içi savaş engelleri aktif.");
+        findApexClanPlugin();
+        if (apexClanPlugin != null) {
+            getLogger().info(apexClanPlugin.getName() + " başarıyla bağlandı! Aynı klandan oyuncuların odaya girmesi engellendi.");
         } else {
-            getLogger().warning("ApexClans bulunamadı. Klan kontrolleri devre dışı kalacak.");
+            getLogger().warning("ApexClan / ApexClans bulunamadı. Klan kontrolleri devre dışı kalacak.");
         }
 
         getLogger().info("ZRoom eklentisi aktif! " + rooms.size() + " oda yüklendi. Ganimet süresi: " + LOOT_TIME_SECONDS + " sn");
@@ -77,6 +76,15 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         pos1Map.clear();
         pos2Map.clear();
         forceSpawnOnRespawn.clear();
+    }
+
+    private void findApexClanPlugin() {
+        for (Plugin p : Bukkit.getPluginManager().getPlugins()) {
+            if (p != null && p.isEnabled() && p.getName().toLowerCase(Locale.ROOT).contains("apexclan")) {
+                apexClanPlugin = p;
+                return;
+            }
+        }
     }
 
     public Map<String, Room> getRooms() { return rooms; }
@@ -394,23 +402,104 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         player.performCommand("spawn");
     }
 
-    // ApexClans Entegrasyonu (Yansıma / Reflection ile hatasız kontrol)
+    // ApexClan / ApexClans V2 tam uyumlu klan karşılaştırması
     public boolean areInSameClan(Player p1, Player p2) {
-        if (!apexClansHooked) return false;
+        if (p1 == null || p2 == null) return false;
+        if (apexClanPlugin == null || !apexClanPlugin.isEnabled()) {
+            findApexClanPlugin();
+        }
+
+        Object clan1 = resolvePlayerClan(p1);
+        Object clan2 = resolvePlayerClan(p2);
+
+        if (clan1 != null && clan2 != null) {
+            if (clan1.equals(clan2)) return true;
+            String id1 = extractClanIdentifier(clan1);
+            String id2 = extractClanIdentifier(clan2);
+            if (id1 != null && id1.equalsIgnoreCase(id2)) return true;
+        }
+
+        // PlaceholderAPI yedek kontrolü (%apex_clan_name% / %apex_clan_tag%)
+        String tag1 = resolveViaPlaceholderAPI(p1);
+        String tag2 = resolveViaPlaceholderAPI(p2);
+        return tag1 != null && !tag1.isEmpty() && tag1.equalsIgnoreCase(tag2);
+    }
+
+    private Object resolvePlayerClan(Player player) {
+        if (apexClanPlugin == null) return null;
+
+        // 1) Ana eklenti sınıfı üzerindeki doğrudan metotlar
+        Object direct = invokeClanLookup(apexClanPlugin, player);
+        if (direct != null) return direct;
+
+        // 2) Manager / Service / API alt nesneleri üzerinden arama
+        String[] managerGetters = {"getClanManager", "getManager", "getClanService", "getStorage", "getApi", "getAPI"};
+        for (String getter : managerGetters) {
+            try {
+                Method m = apexClanPlugin.getClass().getMethod(getter);
+                Object manager = m.invoke(apexClanPlugin);
+                if (manager != null) {
+                    Object found = invokeClanLookup(manager, player);
+                    if (found != null) return found;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private Object invokeClanLookup(Object target, Player player) {
+        String[] methods = {"getClan", "getPlayerClan", "getClanByPlayer", "getClanOf"};
+        for (String name : methods) {
+            try {
+                Method m = target.getClass().getMethod(name, Player.class);
+                Object res = m.invoke(target, player);
+                if (res != null) return res;
+            } catch (Exception ignored) {
+            }
+            try {
+                Method m = target.getClass().getMethod(name, UUID.class);
+                Object res = m.invoke(target, player.getUniqueId());
+                if (res != null) return res;
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private String extractClanIdentifier(Object clanObj) {
+        if (clanObj instanceof String s) return s;
+        String[] idMethods = {"getName", "getId", "getTag", "getUniqueId"};
+        for (String name : idMethods) {
+            try {
+                Method m = clanObj.getClass().getMethod(name);
+                Object val = m.invoke(clanObj);
+                if (val != null) return val.toString();
+            } catch (Exception ignored) {
+            }
+        }
+        return clanObj.toString();
+    }
+
+    private String resolveViaPlaceholderAPI(Player player) {
+        Plugin papi = Bukkit.getPluginManager().getPlugin("PlaceholderAPI");
+        if (papi == null || !papi.isEnabled()) return null;
         try {
-            Plugin apexPlugin = Bukkit.getPluginManager().getPlugin("ApexClans");
-            if (apexPlugin == null) return false;
+            Class<?> papiClass = Class.forName("me.clip.placeholderapi.PlaceholderAPI");
+            Method setPlaceholders = papiClass.getMethod("setPlaceholders", Player.class, String.class);
+            String raw = (String) setPlaceholders.invoke(null, player, "%apex_clan_name%");
+            if (raw == null || raw.equals("%apex_clan_name%")) {
+                raw = (String) setPlaceholders.invoke(null, player, "%apex_clan_tag%");
+            }
+            if (raw == null || raw.contains("%apex_clan_")) return null;
 
-            Object clanManager = apexPlugin.getClass().getMethod("getClanManager").invoke(apexPlugin);
-            if (clanManager == null) return false;
-
-            Method getClanMethod = clanManager.getClass().getMethod("getClan", Player.class);
-            Object clan1 = getClanMethod.invoke(clanManager, p1);
-            Object clan2 = getClanMethod.invoke(clanManager, p2);
-
-            return clan1 != null && clan2 != null && clan1.equals(clan2);
-        } catch (Exception e) {
-            return false;
+            String stripped = ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', raw)).trim();
+            if (stripped.isEmpty() || stripped.equals("❌") || stripped.equalsIgnoreCase("yok") || stripped.equals("-")) {
+                return null;
+            }
+            return stripped;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 }
