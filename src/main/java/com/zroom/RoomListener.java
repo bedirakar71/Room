@@ -27,10 +27,14 @@ import java.util.UUID;
 public class RoomListener implements Listener {
 
     private final ZRoom plugin;
-    private static final String PERMISSION = "zroom.admin";
+    private static final String PERMISSION = ZRoom.PERMISSION;
 
     public RoomListener(ZRoom plugin) {
         this.plugin = plugin;
+    }
+
+    private boolean isBypassAdmin(Player player) {
+        return player != null && (player.isOp() || player.hasPermission(PERMISSION));
     }
 
     @EventHandler
@@ -71,6 +75,8 @@ public class RoomListener implements Listener {
         if (event.isCancelled()) return;
 
         Player player = event.getPlayer();
+        if (isBypassAdmin(player)) return;
+
         UUID uuid = player.getUniqueId();
         for (Room room : plugin.getRooms().values()) {
             if (room.hasPlayer(uuid)) {
@@ -226,18 +232,22 @@ public class RoomListener implements Listener {
         room.removePlayer(uuid);
 
         if (player != null) {
-            Location dropLoc = player.getLocation();
-            if (dropLoc.getWorld() != null) {
-                for (ItemStack item : player.getInventory().getContents()) {
-                    if (item != null && !item.getType().isAir()) {
-                        dropLoc.getWorld().dropItemNaturally(dropLoc, item);
+            if (isBypassAdmin(player)) {
+                player.sendMessage(ChatColor.YELLOW + "Yetkili olduğunuz için odadan ayrılırken eşyalarınız korundu.");
+            } else {
+                Location dropLoc = player.getLocation();
+                if (dropLoc.getWorld() != null) {
+                    for (ItemStack item : player.getInventory().getContents()) {
+                        if (item != null && !item.getType().isAir()) {
+                            dropLoc.getWorld().dropItemNaturally(dropLoc, item);
+                        }
                     }
+                    player.getInventory().clear();
                 }
-                player.getInventory().clear();
+                player.sendMessage(ChatColor.RED + "Odadan çıktığınız için yenik sayıldınız!");
+                plugin.getForceSpawnOnRespawn().add(uuid);
+                plugin.sendToServerSpawn(player, "Odadan kaçtınız!");
             }
-            player.sendMessage(ChatColor.RED + "Odadan çıktığınız için yenik sayıldınız!");
-            plugin.getForceSpawnOnRespawn().add(uuid);
-            plugin.sendToServerSpawn(player, "Odadan kaçtınız!");
         }
 
         Room finalRoom = room;
