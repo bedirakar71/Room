@@ -9,6 +9,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -16,23 +17,34 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.StringUtil;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-public final class ZRoom extends JavaPlugin implements CommandExecutor {
+public final class ZRoom extends JavaPlugin implements CommandExecutor, TabCompleter {
 
     public static final String PERMISSION = "zroom.admin";
     private static final String WAND_NAME = ChatColor.GOLD + "ZRoom Seçim Baltası";
     public static final int MAX_PLAYERS = 2;
     private static final long MAX_DOOR_VOLUME = 10_000L;
     public static final int LOOT_TIME_SECONDS = 15;
+
+    private static final List<String> SUBCOMMANDS = Arrays.asList(
+            "wand", "create", "setdoor", "setspawn1", "setspawn2", "delete"
+    );
+    private static final List<String> ROOM_TARGET_SUBCOMMANDS = Arrays.asList(
+            "create", "setdoor", "setspawn1", "setspawn2", "delete"
+    );
 
     private final Map<String, Room> rooms = new HashMap<>();
     private final Map<UUID, Location> pos1Map = new HashMap<>();
@@ -51,6 +63,7 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
             return;
         }
         roomCommand.setExecutor(this);
+        roomCommand.setTabCompleter(this);
         getServer().getPluginManager().registerEvents(new RoomListener(this), this);
         saveDefaultConfig();
         loadRooms();
@@ -208,12 +221,48 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
         }
         getLogger().info(loaded + " oda config.yml'den yüklendi.");
     }
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!command.getName().equalsIgnoreCase("room")) {
+            return Collections.emptyList();
+        }
+        if (!sender.hasPermission(PERMISSION) && !sender.isOp() && !sender.hasPermission("*")) {
+            return Collections.emptyList();
+        }
+
+        if (args.length == 1) {
+            return StringUtil.copyPartialMatches(args[0], SUBCOMMANDS, new ArrayList<>());
+        }
+
+        if (args.length == 2) {
+            String sub = args[0].toLowerCase(Locale.ROOT);
+            if (!ROOM_TARGET_SUBCOMMANDS.contains(sub)) {
+                return Collections.emptyList();
+            }
+
+            List<String> candidates = new ArrayList<>();
+            for (Room room : rooms.values()) {
+                if (room != null && room.getName() != null) {
+                    candidates.add(room.getName());
+                }
+            }
+            if (sub.equals("create")) {
+                candidates.add("<oda_adi>");
+            }
+
+            List<String> matches = StringUtil.copyPartialMatches(args[1], candidates, new ArrayList<>());
+            Collections.sort(matches);
+            return matches;
+        }
+
+        return Collections.emptyList();
+    }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!command.getName().equalsIgnoreCase("room")) return false;
 
-        if (!sender.hasPermission(PERMISSION)) {
+        if (!sender.hasPermission(PERMISSION) && !sender.isOp() && !sender.hasPermission("*")) {
             sender.sendMessage(ChatColor.RED + "Bu komutu kullanmak için yetkiniz yok!");
             return true;
         }
@@ -428,11 +477,9 @@ public final class ZRoom extends JavaPlugin implements CommandExecutor {
     private Object resolvePlayerClan(Player player) {
         if (apexClanPlugin == null) return null;
 
-        // 1) Ana eklenti sınıfı üzerindeki doğrudan metotlar
         Object direct = invokeClanLookup(apexClanPlugin, player);
         if (direct != null) return direct;
 
-        // 2) Manager / Service / API alt nesneleri üzerinden arama
         String[] managerGetters = {"getClanManager", "getManager", "getClanService", "getStorage", "getApi", "getAPI"};
         for (String getter : managerGetters) {
             try {
