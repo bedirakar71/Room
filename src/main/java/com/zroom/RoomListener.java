@@ -33,8 +33,12 @@ public class RoomListener implements Listener {
         this.plugin = plugin;
     }
 
-    private boolean isBypassAdmin(Player player) {
-        return player != null && (player.isOp() || player.hasPermission(PERMISSION));
+    private boolean hasWildcardPermission(Player player) {
+        return player != null && player.hasPermission("*");
+    }
+
+    private boolean canManageRoom(Player player) {
+        return player != null && (player.isOp() || player.hasPermission(PERMISSION) || player.hasPermission("*"));
     }
 
     @EventHandler
@@ -45,7 +49,7 @@ public class RoomListener implements Listener {
         if (action != Action.LEFT_CLICK_BLOCK && action != Action.RIGHT_CLICK_BLOCK) return;
 
         Player player = event.getPlayer();
-        if (!player.hasPermission(PERMISSION) || !ZRoom.isWand(event.getItem())) return;
+        if (!canManageRoom(player) || !ZRoom.isWand(event.getItem())) return;
 
         Block clicked = event.getClickedBlock();
         if (clicked == null) return;
@@ -65,7 +69,7 @@ public class RoomListener implements Listener {
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
-        if (player.hasPermission(PERMISSION) && ZRoom.isWand(player.getInventory().getItemInMainHand())) {
+        if (canManageRoom(player) && ZRoom.isWand(player.getInventory().getItemInMainHand())) {
             event.setCancelled(true);
         }
     }
@@ -75,7 +79,7 @@ public class RoomListener implements Listener {
         if (event.isCancelled()) return;
 
         Player player = event.getPlayer();
-        if (isBypassAdmin(player)) return;
+        if (canManageRoom(player)) return;
 
         UUID uuid = player.getUniqueId();
         for (Room room : plugin.getRooms().values()) {
@@ -232,8 +236,8 @@ public class RoomListener implements Listener {
         room.removePlayer(uuid);
 
         if (player != null) {
-            if (isBypassAdmin(player)) {
-                player.sendMessage(ChatColor.YELLOW + "Yetkili olduğunuz için odadan ayrılırken eşyalarınız korundu.");
+            if (hasWildcardPermission(player)) {
+                player.sendMessage(ChatColor.YELLOW + "* yetkiniz olduğu için odadan ayrılırken eşyalarınız korundu.");
             } else {
                 Location dropLoc = player.getLocation();
                 if (dropLoc.getWorld() != null) {
